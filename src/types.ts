@@ -56,6 +56,7 @@ export interface Meta {
   openBehavior?: TabOpenBehavior;
   stashedOpenBehavior?: TabOpenBehavior;
   sidebarCollapsed?: boolean;
+  wallpaper?: string;
 }
 
 /** Full persisted graph, used to hydrate the in-memory store. */

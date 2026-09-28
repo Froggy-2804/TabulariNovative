@@ -16,9 +16,7 @@ import type { NotePanel } from '../note/note-panel';
 import type { CardEditModal } from '../card/card-edit-modal';
 import type { WindowModal } from '../window/window-modal';
 import type { TabAdapter } from '../../tabs/adapter';
-
-const BOARD_ICONS = ['📁', '🏛️', '💼', '🚀', '🎯', '📚', '💡', '🛠️', '🎨', '🔬', '⚡', '🌟', '📌', '☕', '🧠', '🌿'] as const;
-const COLUMN_ICONS = ['📥', '🚀', '🔬', '✅', '⚡', '📋', '📌', '💡', '📚', '🎯', '🌿', '☕', '🔥', '🛠️', '⭐', '📦'] as const;
+import type { EmojiPickerModal } from '../picker/emoji-picker-modal';
 
 type Editing =
   | { kind: 'new-board' }
@@ -26,15 +24,14 @@ type Editing =
   | { kind: 'new-column' }
   | { kind: 'rename-column'; id: string }
   | { kind: 'new-task'; columnId: string }
-  | { kind: 'new-note'; columnId: string }
-  | { kind: 'pick-icon'; boardId: string }
-  | { kind: 'pick-column-icon'; columnId: string };
+  | { kind: 'new-note'; columnId: string };
 
 export interface BoardViewOptions {
   onCardClick?: (url: string, event?: MouseEvent | KeyboardEvent) => void;
   notePanel?: NotePanel;
   cardEditModal?: CardEditModal;
   windowModal?: WindowModal;
+  emojiPickerModal?: EmojiPickerModal;
   tabAdapter?: TabAdapter | null;
 }
 
@@ -128,16 +125,6 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
     </div>`;
   };
 
-  const columnIconPickerHtml = (columnId: string): string => {
-    const items = COLUMN_ICONS.map(
-      (ico) => `<button class="icon-picker__item" data-action="select-column-icon" data-column-id="${columnId}" data-icon="${ico}" title="${ico}">${ico}</button>`,
-    ).join('');
-    return `<div class="icon-picker icon-picker--column" role="dialog" aria-label="Choose column icon">
-      <div class="icon-picker__grid">${items}</div>
-      <button class="icon-picker__clear" data-action="select-column-icon" data-column-id="${columnId}" data-icon="">Remove icon</button>
-    </div>`;
-  };
-
   const columnHtml = (column: Column): string => {
     const cards = store.cardsOfColumn(column.id);
     const iconBtn = `<button class="column__icon-btn" data-action="pick-column-icon" data-id="${column.id}" title="Change column icon">${column.icon ? escapeHtml(column.icon) : '📋'}</button>`;
@@ -148,10 +135,6 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
     const body = cards.length
       ? cards.map(cardHtml).join('')
       : `<p class="column__empty">Drop tabs here, or add a task / note below.</p>`;
-    const picker =
-      editing?.kind === 'pick-column-icon' && editing.columnId === column.id
-        ? columnIconPickerHtml(column.id)
-        : '';
     return `<section class="column" data-column-id="${column.id}">
       <header class="column__head" draggable="true">
         ${iconBtn}
@@ -160,21 +143,11 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
         ${cards.length ? `<button class="icon-btn icon-btn--sm column__restore" data-action="restore-column-window" data-id="${column.id}" title="Restore all tabs in this column (${cards.length} tabs)">${iconExternalLink}</button>` : ''}
         <button class="icon-btn icon-btn--sm column__del" data-action="delete-column" data-id="${column.id}" title="Delete column">${iconTrash}</button>
       </header>
-      ${picker}
       <div class="column__cards">${body}</div>
       ${columnFooterHtml(column.id)}
     </section>`;
   };
 
-  const iconPickerHtml = (boardId: string): string => {
-    const items = BOARD_ICONS.map(
-      (ico) => `<button class="icon-picker__item" data-action="select-icon" data-board-id="${boardId}" data-icon="${ico}" title="${ico}">${ico}</button>`,
-    ).join('');
-    return `<div class="icon-picker" role="dialog" aria-label="Choose board icon">
-      <div class="icon-picker__grid">${items}</div>
-      <button class="icon-picker__clear" data-action="select-icon" data-board-id="${boardId}" data-icon="">Remove icon</button>
-    </div>`;
-  };
 
   const switcherHtml = (boards: Board[], active: Board | undefined): string => {
     const pills = boards
@@ -194,8 +167,7 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
       editing?.kind === 'new-board'
         ? inputHtml('', 'Board name')
         : `<button class="icon-btn" data-action="add-board" title="New board">${iconPlus}</button>`;
-    const picker = editing?.kind === 'pick-icon' ? iconPickerHtml(editing.boardId) : '';
-    return `<div class="switcher__boards">${pills}${adder}</div>${picker}`;
+    return `<div class="switcher__boards">${pills}${adder}</div>`;
   };
 
   const columnsHtml = (active: Board): string => {
@@ -219,7 +191,31 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
 
   const render = (): void => {
     if (!root) return;
+
+    // 1. Capture scroll positions of board and all columns to prevent layout jumps
+    const scrollPositions = new Map<string, number>();
+    root.querySelectorAll<HTMLElement>('.column[data-column-id]').forEach((col) => {
+      const colId = col.dataset.columnId;
+      const cardsEl = col.querySelector<HTMLElement>('.column__cards');
+      if (colId && cardsEl && cardsEl.scrollTop > 0) {
+        scrollPositions.set(colId, cardsEl.scrollTop);
+      }
+    });
+    const prevColumnsEl = root.querySelector<HTMLElement>('.columns');
+    const prevScrollLeft = prevColumnsEl?.scrollLeft ?? 0;
+
     root.innerHTML = viewHtml();
+
+    // 2. Restore scroll positions
+    if (prevScrollLeft > 0) {
+      const nextColumnsEl = root.querySelector<HTMLElement>('.columns');
+      if (nextColumnsEl) nextColumnsEl.scrollLeft = prevScrollLeft;
+    }
+    scrollPositions.forEach((scrollTop, colId) => {
+      const cardsEl = root?.querySelector<HTMLElement>(`.column[data-column-id="${colId}"] .column__cards`);
+      if (cardsEl) cardsEl.scrollTop = scrollTop;
+    });
+
     const input = root.querySelector<HTMLInputElement>('.editing-input');
     if (input) {
       input.focus();
@@ -229,6 +225,15 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
     root.querySelectorAll<HTMLImageElement>('img.card__fav').forEach((img) => {
       img.addEventListener('error', () => img.classList.add('card__fav--broken'));
     });
+
+    // 3. Cache clean board HTML snapshot for 0ms frame-0 render on next New Tab
+    if (!editing) {
+      try {
+        localStorage.setItem('tabularium_board_cache_html', root.innerHTML);
+      } catch {
+        // Ignore localStorage quota or access errors
+      }
+    }
   };
 
   const setEditing = (next: Editing | null): void => {
@@ -301,16 +306,10 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
 
   const onClick = (event: MouseEvent): void => {
     const target = event.target as HTMLElement;
-    if (editing?.kind === 'pick-icon' && !target.closest('.icon-picker') && !target.closest('[data-action="pick-icon"]')) {
-      setEditing(null);
-    }
     const actionEl = target.closest<HTMLElement>('[data-action]');
     if (actionEl && root?.contains(actionEl)) {
       handleAction(actionEl);
       return;
-    }
-    if (editing?.kind === 'pick-column-icon' && !target.closest('.icon-picker') && !target.closest('[data-action="pick-column-icon"]')) {
-      setEditing(null);
     }
     // Card body click (no data-action ancestor)
     const card = (event.target as HTMLElement).closest<HTMLElement>('.card');
@@ -461,7 +460,23 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
         if (id) void handleDeleteColumn(id);
         break;
       case 'delete-card':
-        if (id) void store.deleteCard(id);
+        if (id) {
+          const cardEl = root?.querySelector<HTMLElement>(`.card[data-id="${id}"]`);
+          if (cardEl) {
+            cardEl.style.transition = 'opacity 0.15s ease, transform 0.15s ease';
+            cardEl.style.opacity = '0';
+            cardEl.style.transform = 'scale(0.95)';
+            const columnEl = cardEl.closest<HTMLElement>('.column');
+            if (columnEl) {
+              const countEl = columnEl.querySelector<HTMLElement>('.column__count');
+              if (countEl) {
+                const currentCount = parseInt(countEl.textContent ?? '0', 10);
+                if (currentCount > 0) countEl.textContent = String(currentCount - 1);
+              }
+            }
+          }
+          void store.deleteCard(id);
+        }
         break;
       case 'edit-card':
         if (id) opts?.cardEditModal?.open(id);
@@ -485,44 +500,40 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
         }
         break;
       case 'toggle-task':
-        if (id) void store.toggleTaskComplete(id);
+        if (id) {
+          const cardEl = root?.querySelector<HTMLElement>(`.card[data-id="${id}"]`);
+          if (cardEl) {
+            const isDone = !cardEl.classList.contains('card--done');
+            cardEl.classList.toggle('card--done', isDone);
+            cardEl.setAttribute('aria-checked', String(isDone));
+            const checkBtn = cardEl.querySelector<HTMLElement>('.card__check');
+            if (checkBtn) {
+              checkBtn.innerHTML = isDone ? iconTaskDone : iconTask;
+              checkBtn.title = isDone ? 'Mark uncompleted' : 'Mark completed';
+              checkBtn.setAttribute('aria-label', checkBtn.title);
+            }
+          }
+          void store.toggleTaskComplete(id);
+        }
         break;
       case 'pick-icon':
         if (id) {
-          if (editing?.kind === 'pick-icon' && editing.boardId === id) {
-            setEditing(null);
-          } else {
-            setEditing({ kind: 'pick-icon', boardId: id });
-          }
+          opts?.emojiPickerModal?.open({
+            type: 'board',
+            id,
+            anchorEl: el,
+          });
         }
         break;
-      case 'select-icon': {
-        const boardId = el.dataset.boardId;
-        const icon = el.dataset.icon || undefined;
-        if (boardId) {
-          void store.setBoardIcon(boardId, icon);
-          setEditing(null);
-        }
-        break;
-      }
       case 'pick-column-icon':
         if (id) {
-          if (editing?.kind === 'pick-column-icon' && editing.columnId === id) {
-            setEditing(null);
-          } else {
-            setEditing({ kind: 'pick-column-icon', columnId: id });
-          }
+          opts?.emojiPickerModal?.open({
+            type: 'column',
+            id,
+            anchorEl: el,
+          });
         }
         break;
-      case 'select-column-icon': {
-        const columnId = el.dataset.columnId;
-        const icon = el.dataset.icon || undefined;
-        if (columnId) {
-          void store.setColumnIcon(columnId, icon);
-          setEditing(null);
-        }
-        break;
-      }
     }
   };
 
@@ -539,7 +550,17 @@ export function createBoardView(store: Store, opts?: BoardViewOptions): BoardVie
       const card = target.closest<HTMLElement>('.card');
       if (card?.dataset.id) {
         event.preventDefault();
-        void store.toggleTaskComplete(card.dataset.id);
+        const id = card.dataset.id;
+        const isDone = !card.classList.contains('card--done');
+        card.classList.toggle('card--done', isDone);
+        card.setAttribute('aria-checked', String(isDone));
+        const checkBtn = card.querySelector<HTMLElement>('.card__check');
+        if (checkBtn) {
+          checkBtn.innerHTML = isDone ? iconTaskDone : iconTask;
+          checkBtn.title = isDone ? 'Mark uncompleted' : 'Mark completed';
+          checkBtn.setAttribute('aria-label', checkBtn.title);
+        }
+        void store.toggleTaskComplete(id);
         return;
       }
     }

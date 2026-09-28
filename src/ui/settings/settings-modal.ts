@@ -6,9 +6,11 @@
  * 2. Export full IndexedDB data to JSON backup file
  * 3. Import & restore full data from JSON backup file with validation & confirmation
  */
-import { iconDownload, iconGear, iconUpload, iconX } from '../icons';
+import { iconDownload, iconGear, iconTrash, iconUpload, iconX } from '../icons';
 import { showToast } from '../toast';
+import { escapeHtml } from '../../util';
 import { importCsvToStore, serializeSnapshotToCsv } from '../../util/csv';
+import { processWallpaperFile } from '../../util/wallpaper';
 import type { Store } from '../../state/store';
 import type { Snapshot, TabOpenBehavior } from '../../types';
 
@@ -40,7 +42,9 @@ export function createSettingsModal(store: Store): SettingsModal {
     const meta = store.getState().meta;
     const openBehavior: TabOpenBehavior = meta.openBehavior ?? 'current-tab';
     const stashedOpenBehavior: TabOpenBehavior = meta.stashedOpenBehavior ?? 'new-tab';
-
+    const hasCustomWallpaper = Boolean(meta.wallpaper);
+    const wallpaperPreviewSrc = meta.wallpaper || '/tabularium.jpg';
+    const wallpaperTitle = hasCustomWallpaper ? 'Custom Wallpaper' : 'Default Architecture (tabularium.jpg)';
     container.innerHTML = `
       <div class="settings-modal__backdrop" data-action="close-settings"></div>
       <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
@@ -56,7 +60,6 @@ export function createSettingsModal(store: Store): SettingsModal {
           <!-- Section 1: Tab Open Behavior -->
           <section class="settings-section">
             <h3 class="settings-section__title">Tab Opening Behavior</h3>
-            <p class="settings-section__desc">Choose where links navigate when you click a tab card on your board.</p>
 
             <div class="settings-options" role="radiogroup" aria-label="Tab Opening Behavior">
               <button
@@ -96,7 +99,6 @@ export function createSettingsModal(store: Store): SettingsModal {
           <!-- Section 2: Stashed Window Tab Opening -->
           <section class="settings-section">
             <h3 class="settings-section__title">Stashed Window Tab Opening</h3>
-            <p class="settings-section__desc">Choose where tabs from a stashed window session open when restored or clicked.</p>
 
             <div class="settings-options" role="radiogroup" aria-label="Stashed Window Tab Opening">
               <button
@@ -113,7 +115,6 @@ export function createSettingsModal(store: Store): SettingsModal {
                     Open in new tab
                     <span class="settings-badge">Default</span>
                   </span>
-                  <span class="settings-option__desc">Restores tabs as new tabs. Keeps Tabularium open in the background.</span>
                 </span>
               </button>
 
@@ -128,9 +129,40 @@ export function createSettingsModal(store: Store): SettingsModal {
                 <span class="settings-option__indicator"></span>
                 <span class="settings-option__content">
                   <span class="settings-option__label">Open in current tab</span>
-                  <span class="settings-option__desc">Navigates directly in this tab without keeping Tabularium open in the background.</span>
                 </span>
               </button>
+            </div>
+          </section>
+          <!-- Section 3: Wallpaper -->
+          <section class="settings-section">
+            <h3 class="settings-section__title">Wallpaper</h3>
+
+            <div class="settings-wallpaper-card">
+              <div class="settings-wallpaper__preview-row">
+                <img
+                  class="settings-wallpaper__thumb"
+                  src="${escapeHtml(wallpaperPreviewSrc)}"
+                  alt="Wallpaper thumbnail"
+                />
+                <div class="settings-wallpaper__meta">
+                  <span class="settings-wallpaper__title">${escapeHtml(wallpaperTitle)}</span>
+                  <div class="settings-wallpaper__sub">
+                    <span>${hasCustomWallpaper ? 'Active custom wallpaper' : 'Default architectural background'}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-wallpaper__actions">
+                <button type="button" class="settings-btn" data-action="trigger-wallpaper-upload" title="Upload local image">
+                  ${iconUpload}
+                  <span>${hasCustomWallpaper ? 'Change Wallpaper' : 'Upload Wallpaper'}</span>
+                </button>
+                ${hasCustomWallpaper ? `
+                <button type="button" class="settings-btn" data-action="remove-wallpaper" title="Reset to default background">
+                  ${iconTrash}
+                  <span>Reset to Default</span>
+                </button>` : ''}
+                <input type="file" class="settings-wallpaper-input" accept="image/*" style="display: none;" />
+              </div>
             </div>
           </section>
 
@@ -246,6 +278,26 @@ export function createSettingsModal(store: Store): SettingsModal {
         }
       });
     }
+    // Wire Wallpaper file input
+    const wallpaperInput = container.querySelector<HTMLInputElement>('.settings-wallpaper-input');
+    if (wallpaperInput) {
+      wallpaperInput.addEventListener('change', async () => {
+        const file = wallpaperInput.files?.[0];
+        if (!file) return;
+
+        showToast('Processing & optimizing wallpaper...');
+        try {
+          const { dataUrl, sizeKb } = await processWallpaperFile(file);
+          await store.setWallpaper(dataUrl);
+          showToast(`Wallpaper set (${sizeKb} KB)`);
+          renderContent();
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : 'Failed to process wallpaper');
+        } finally {
+          wallpaperInput.value = '';
+        }
+      });
+    }
   };
 
   const open = (): void => {
@@ -308,6 +360,24 @@ export function createSettingsModal(store: Store): SettingsModal {
           renderContent();
         });
       }
+      return;
+    }
+
+    // Trigger Wallpaper Upload
+    if (target.closest('[data-action="trigger-wallpaper-upload"]')) {
+      event.preventDefault();
+      const wallpaperInput = container?.querySelector<HTMLInputElement>('.settings-wallpaper-input');
+      wallpaperInput?.click();
+      return;
+    }
+
+    // Remove Wallpaper
+    if (target.closest('[data-action="remove-wallpaper"]')) {
+      event.preventDefault();
+      void store.removeWallpaper().then(() => {
+        showToast('Wallpaper reset to default');
+        renderContent();
+      });
       return;
     }
 

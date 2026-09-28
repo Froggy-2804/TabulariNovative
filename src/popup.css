@@ -1,41 +1,21 @@
 :root {
-  --bg: #161619;
+  --bg: #131316;
+  --bg-gradient: radial-gradient(ellipse 90% 55% at 50% -10%, rgba(146, 142, 232, 0.08), transparent 70%),
+                 linear-gradient(180deg, #17171c 0%, #121215 100%);
+  --brand-gradient: linear-gradient(135deg, #ffffff 40%, #c5c2ff 100%);
   --surface: #1e1e22;
   --surface-2: #26262c;
-  --border: #33333b;
+  --border: rgba(255, 255, 255, 0.08);
   --text: #ececee;
   --text-muted: #9a9aa3;
   --accent: #928ee8;
   --note-accent: #f59e0b;
   --radius: 10px;
   --radius-sm: 6px;
-  --font-sans: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
   color-scheme: dark;
 }
 
-:root[data-theme="light"] {
-  --bg: #eef2f6;
-  --surface: #ffffff;
-  --surface-2: #e2e8f0;
-  --border: #cbd5e1;
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --accent: #4f46e5;
-  --note-accent: #d97706;
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  --bg: #161619;
-  --surface: #1e1e22;
-  --surface-2: #26262c;
-  --border: #33333b;
-  --text: #ececee;
-  --text-muted: #9a9aa3;
-  --accent: #928ee8;
-  --note-accent: #f59e0b;
-  color-scheme: dark;
-}
 
 * {
   box-sizing: border-box;
@@ -45,7 +25,7 @@
 
 body {
   width: 500px;
-  background: var(--bg);
+  background: var(--bg-gradient, var(--bg));
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 13.5px;
@@ -90,6 +70,9 @@ body {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  background: var(--brand-gradient, var(--text));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .fast-note__kind-switch {
@@ -122,34 +105,46 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-/* Destination target */
+/* Destination target & Note selection */
+.fast-note__targets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .fast-note__target {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 12.5px;
+  overflow: hidden;
 }
 
 .fast-note__target-label {
   color: var(--text-muted);
   font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .fast-note__select {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
   outline: none;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .fast-note__select option {

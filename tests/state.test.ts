@@ -190,6 +190,15 @@ it('setStashedOpenBehavior updates meta.stashedOpenBehavior', async () => {
   expect(store.getState().meta.stashedOpenBehavior).toBe('new-tab');
 });
 
+it('setWallpaper and removeWallpaper update and clear wallpaper metadata', async () => {
+  expect(store.getState().meta.wallpaper).toBeUndefined();
+  await store.setWallpaper('data:image/jpeg;base64,sample');
+  expect(store.getState().meta.wallpaper).toBe('data:image/jpeg;base64,sample');
+
+  await store.removeWallpaper();
+  expect(store.getState().meta.wallpaper).toBeUndefined();
+});
+
 it('store.importSnapshot refreshes in-memory state with imported data', async () => {
   const backup = {
     boards: [{ id: 'imp-b', name: 'Imported', order: 1000, createdAt: 1, updatedAt: 1 }],
