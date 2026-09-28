@@ -117,16 +117,50 @@ async function bootstrap(): Promise<void> {
   // Refresh state when the service worker saves a tab (M9 quick-save).
   onExternalChange(() => { void store.applyExternalChange(); });
 
+  // Board + card-click (activate matching tab or open new)
+  const tabAdapter = tryCreateTabAdapter();
+
+  const handleCardClick = tabAdapter
+    ? async (url: string, event?: MouseEvent | KeyboardEvent) => {
+        const isNewTab = Boolean(
+          event && (
+            ('button' in event && (event.button === 2 || event.button === 1)) ||
+            event.type === 'contextmenu' ||
+            event.ctrlKey ||
+            event.metaKey
+          ),
+        );
+        const behavior = store.getState().meta.openBehavior ?? 'current-tab';
+        if (isNewTab || behavior === 'new-tab') {
+          await tabAdapter.openUrl(url, false);
+        } else {
+          await tabAdapter.openInCurrentTab(url);
+        }
+      }
+    : (url: string, event?: MouseEvent | KeyboardEvent) => {
+        const isNewTab = Boolean(
+          event && (
+            ('button' in event && (event.button === 2 || event.button === 1)) ||
+            event.type === 'contextmenu' ||
+            event.ctrlKey ||
+            event.metaKey
+          ),
+        );
+        const behavior = store.getState().meta.openBehavior ?? 'current-tab';
+        if (isNewTab || behavior === 'new-tab') {
+          window.open(url, '_blank');
+        } else {
+          window.location.href = url;
+        }
+      };
+
   // Note editor panel (spacious slide-over drawer)
-  const notePanel = createNotePanel(store);
+  const notePanel = createNotePanel(store, handleCardClick);
   notePanel.mount(app);
 
   // Card edit modal (title & link editing)
   const cardEditModal = createCardEditModal(store);
   cardEditModal.mount(app);
-
-  // Board + card-click (activate matching tab or open new)
-  const tabAdapter = tryCreateTabAdapter();
 
   // Window session inspector & restore modal
   const windowModal = createWindowModal(store, tabAdapter);
@@ -143,39 +177,7 @@ async function bootstrap(): Promise<void> {
       windowModal,
       emojiPickerModal,
       tabAdapter,
-      onCardClick: tabAdapter
-        ? async (url, event) => {
-            const isNewTab = Boolean(
-              event && (
-                ('button' in event && (event.button === 2 || event.button === 1)) ||
-                event.type === 'contextmenu' ||
-                event.ctrlKey ||
-                event.metaKey
-              ),
-            );
-            const behavior = store.getState().meta.openBehavior ?? 'current-tab';
-            if (isNewTab || behavior === 'new-tab') {
-              await tabAdapter.openUrl(url, false);
-            } else {
-              await tabAdapter.openInCurrentTab(url);
-            }
-          }
-        : (url, event) => {
-            const isNewTab = Boolean(
-              event && (
-                ('button' in event && (event.button === 2 || event.button === 1)) ||
-                event.type === 'contextmenu' ||
-                event.ctrlKey ||
-                event.metaKey
-              ),
-            );
-            const behavior = store.getState().meta.openBehavior ?? 'current-tab';
-            if (isNewTab || behavior === 'new-tab') {
-              window.open(url, '_blank');
-            } else {
-              window.location.href = url;
-            }
-          },
+      onCardClick: handleCardClick,
     }).mount(boardRoot);
   }
 

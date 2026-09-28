@@ -8,8 +8,9 @@
  * - Escape or click-outside to close
  * - Live character and word counts
  */
-import { iconX, iconTask, iconTaskDone, iconListTodo, iconNote } from '../icons';
-import { escapeHtml, formatDateTag, HAS_DATE_PREFIX } from '../../util';
+import { iconX, iconTask, iconTaskDone, iconListTodo, iconNote, iconExternalLink, iconDownload } from '../icons';
+import { escapeHtml, formatDateTag, HAS_DATE_PREFIX, triggerDownload, formatCardAsMarkdown } from '../../util';
+import { showToast } from '../toast';
 import type { Store } from '../../state/store';
 
 export interface NotePanel {
@@ -20,7 +21,7 @@ export interface NotePanel {
   mount(parent: HTMLElement): void;
 }
 
-export function createNotePanel(store: Store): NotePanel {
+export function createNotePanel(store: Store, onCardClick?: (url: string) => void): NotePanel {
   let activeCardId: string | null = null;
   let pendingNew: { columnId: string; kind: 'task' | 'note' } | null = null;
   let container: HTMLElement | null = null;
@@ -30,6 +31,18 @@ export function createNotePanel(store: Store): NotePanel {
   const flushSave = (): void => {
     clearTimeout(saveTimer);
     saveTimer = undefined;
+
+    if (container) {
+      const titleInput = container.querySelector<HTMLInputElement>('.note-panel__title-input');
+      const textarea = container.querySelector<HTMLTextAreaElement>('.note-panel__textarea');
+      if (titleInput) {
+        const val = titleInput.value.trim() || '(untitled)';
+        pendingTitle = val;
+      }
+      if (textarea) {
+        pendingNote = textarea.value;
+      }
+    }
 
     if (pendingNew) {
       const cleanTitle = (pendingTitle ?? '').replace(HAS_DATE_PREFIX, '').trim();
@@ -113,6 +126,38 @@ export function createNotePanel(store: Store): NotePanel {
       day: 'numeric',
       year: 'numeric',
     });
+    let attachedLinkHtml = '';
+    if (card?.url) {
+      let hostname = '';
+      try {
+        hostname = new URL(card.url).hostname.replace(/^www\./, '');
+      } catch {
+        hostname = card.url;
+      }
+      const fav = card.favIconUrl
+        ? `<img class="note-panel__embed-fav" src="${escapeHtml(card.favIconUrl)}" alt="" width="14" height="14" />`
+        : '🔗';
+      attachedLinkHtml = `
+        <div class="note-panel__embed-card">
+          <div class="note-panel__embed-info" data-action="open-embed-link" data-url="${escapeHtml(card.url)}" title="Open: ${escapeHtml(card.url)}">
+            <span class="note-panel__embed-icon">${fav}</span>
+            <div class="note-panel__embed-text">
+              <span class="note-panel__embed-host">${escapeHtml(hostname)}</span>
+              <span class="note-panel__embed-url">${escapeHtml(card.url)}</span>
+            </div>
+          </div>
+          <div class="note-panel__embed-actions">
+            <button type="button" class="note-panel__embed-btn" data-action="open-embed-link" data-url="${escapeHtml(card.url)}" title="Open link">
+              ${iconExternalLink}
+              <span>Open</span>
+            </button>
+            <button type="button" class="note-panel__embed-btn note-panel__embed-btn--remove" data-action="remove-embed-link" title="Remove link">
+              ${iconX}
+            </button>
+          </div>
+        </div>
+      `;
+    }
 
     container.innerHTML = `
       <div class="note-panel__backdrop" data-action="close-note"></div>
@@ -124,7 +169,10 @@ export function createNotePanel(store: Store): NotePanel {
             <span class="note-panel__date">${escapeHtml(dateStr)}</span>
             <span class="note-panel__counts">0 words · 0 chars</span>
           </div>
-          <button class="icon-btn note-panel__close" data-action="close-note" title="Close (Esc)">${iconX}</button>
+          <div class="note-panel__head-actions">
+            ${activeCardId ? `<button type="button" class="icon-btn note-panel__export-btn" data-action="export-note-md" title="Export as Markdown (.md)">${iconDownload}</button>` : ''}
+            <button type="button" class="icon-btn note-panel__close" data-action="close-note" title="Close (Esc)">${iconX}</button>
+          </div>
         </header>
 
         <div class="note-panel__body">
@@ -136,6 +184,7 @@ export function createNotePanel(store: Store): NotePanel {
             autocomplete="off"
             spellcheck="false"
           />
+          ${attachedLinkHtml}
           <textarea
             class="note-panel__textarea"
             placeholder="${textareaPlaceholder}"
@@ -195,19 +244,20 @@ export function createNotePanel(store: Store): NotePanel {
 
   const close = (): void => {
     flushSave();
-    if (activeCardId) {
-      const card = store.getState().cards[activeCardId];
+    const wasActive = activeCardId;
+    activeCardId = null;
+    pendingNew = null;
+    if (wasActive) {
+      const card = store.getState().cards[wasActive];
       if (card) {
         const cleanTitle = card.title.replace(HAS_DATE_PREFIX, '').trim();
         const note = (card.note ?? '').trim();
         const url = (card.url ?? '').trim();
         if ((!cleanTitle || cleanTitle === '(untitled)') && !note && !url) {
-          void store.deleteCard(activeCardId);
+          void store.deleteCard(wasActive);
         }
       }
     }
-    activeCardId = null;
-    pendingNew = null;
     pendingTitle = null;
     pendingNote = null;
     if (container) {
@@ -254,7 +304,38 @@ export function createNotePanel(store: Store): NotePanel {
   };
 
   const onClick = (event: MouseEvent): void => {
-    const toggleBtn = (event.target as HTMLElement).closest<HTMLElement>('[data-action="toggle-panel-task"]');
+    const target = event.target as HTMLElement;
+    const exportBtn = target.closest<HTMLElement>('[data-action="export-note-md"]');
+    if (exportBtn && activeCardId) {
+      event.preventDefault();
+      flushSave();
+      const currentCard = store.getState().cards[activeCardId];
+      if (currentCard) {
+        const { filename, content } = formatCardAsMarkdown(currentCard);
+        triggerDownload(content, filename, 'text/markdown;charset=utf-8;');
+        showToast(`Exported "${filename}"`);
+      }
+      return;
+    }
+    const openLink = target.closest<HTMLElement>('[data-action="open-embed-link"]');
+    if (openLink) {
+      event.preventDefault();
+      const url = openLink.dataset.url;
+      if (url) {
+        if (onCardClick) onCardClick(url);
+        else window.open(url, '_blank');
+      }
+      return;
+    }
+    const removeLink = target.closest<HTMLElement>('[data-action="remove-embed-link"]');
+    if (removeLink && activeCardId) {
+      event.preventDefault();
+      void store.updateCard(activeCardId, { url: '', favIconUrl: undefined }).then(() => {
+        if (activeCardId) renderContent(activeCardId);
+      });
+      return;
+    }
+    const toggleBtn = target.closest<HTMLElement>('[data-action="toggle-panel-task"]');
     if (toggleBtn && activeCardId) {
       event.preventDefault();
       void store.toggleTaskComplete(activeCardId).then(() => {
@@ -262,7 +343,7 @@ export function createNotePanel(store: Store): NotePanel {
       });
       return;
     }
-    const el = (event.target as HTMLElement).closest<HTMLElement>('[data-action="close-note"]');
+    const el = target.closest<HTMLElement>('[data-action="close-note"]');
     if (el) {
       event.preventDefault();
       close();
